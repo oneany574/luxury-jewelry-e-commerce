@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
+import { sendAppointmentConfirmation } from '@/lib/email';
+import { authOptions } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,22 +44,25 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const authHeader = request.headers.get('authorization');
-    
-    if (!authHeader) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const userId = authHeader.split(' ')[1];
+    const body = await request.json();
+    const userId = session.user.id;
 
-    // Check if user is trying to book appointment without being logged in
-    if (!userId) {
+    // Get user data for email
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user?.email) {
       return NextResponse.json(
-        { error: 'User ID is required' },
+        { error: 'User email not found' },
         { status: 400 }
       );
     }
@@ -70,9 +76,30 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Send confirmation email
+    const appointmentDate = new Date(body.appointmentDate);
+    const dateStr = appointmentDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const timeStr = appointmentDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    await sendAppointmentConfirmation(
+      user.email,
+      user.name || 'Valued Customer',
+      dateStr,
+      timeStr,
+      body.type || 'Jewelry Consultation'
+    );
+
     return NextResponse.json(appointment, { status: 201 });
   } catch (error) {
-    console.error('[v0] POST /api/appointments error:', error);
+    console.error('POST /api/appointments error:', error);
     return NextResponse.json(
       { error: 'Failed to book appointment' },
       { status: 500 }

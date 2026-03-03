@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
+import { createPaymentIntent } from '@/lib/stripe';
+import { authOptions } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,16 +33,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const userId = authHeader.split(' ')[1];
+    const body = await request.json();
+    const userId = session.user.id;
 
     // Get cart items
     const cart = await prisma.cart.findUnique({
@@ -60,13 +63,20 @@ export async function POST(request: NextRequest) {
       0
     );
 
+    // Create payment intent
+    const paymentIntent = await createPaymentIntent(total, 'usd', {
+      userId,
+      itemCount: cart.items.length.toString(),
+    });
+
     // Create order
     const order = await prisma.order.create({
       data: {
         userId,
-        status: 'PENDING_PAYMENT',
+        status: 'pending',
         total,
         shippingAddress: body.shippingAddress,
+        paymentIntentId: paymentIntent.id,
         items: {
           createMany: {
             data: cart.items.map((item) => ({
@@ -85,9 +95,12 @@ export async function POST(request: NextRequest) {
       where: { cartId: cart.id },
     });
 
-    return NextResponse.json(order, { status: 201 });
+    return NextResponse.json({
+      ...order,
+      clientSecret: paymentIntent.client_secret,
+    }, { status: 201 });
   } catch (error) {
-    console.error('[v0] POST /api/orders error:', error);
+    console.error('POST /api/orders error:', error);
     return NextResponse.json(
       { error: 'Failed to create order' },
       { status: 500 }
