@@ -1,0 +1,289 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for authentication
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  password  String
+  name      String?
+  phone     String?
+  role      UserRole   @default(CUSTOMER)
+  
+  // Addresses
+  addresses Address[]
+  
+  // Orders and appointments
+  orders    Order[]
+  appointments Appointment[]
+  
+  // Custom designs
+  customDesigns CustomDesign[]
+  
+  // Cart items
+  cartItems CartItem[]
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("users")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+// Address model
+model Address {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  firstName String
+  lastName  String
+  street    String
+  city      String
+  state     String
+  zip       String
+  country   String
+  phone     String
+  isDefault Boolean    @default(false)
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("addresses")
+}
+
+// Product model for jewelry catalog
+model Product {
+  id          String     @id @default(cuid())
+  name        String
+  description String
+  price       Float
+  discountPrice Float?
+  
+  // Product details
+  category    String     // e.g., "rings", "necklaces", "bracelets"
+  material    String     // e.g., "gold", "silver", "platinum"
+  carat       Float?
+  
+  // Images
+  images      String[]   // array of image URLs
+  
+  // Inventory
+  stock       Int        @default(0)
+  sku         String     @unique
+  
+  // Relationships
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+  customDesigns CustomDesign[]
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@map("products")
+}
+
+// Cart model
+model Cart {
+  id        String     @id @default(cuid())
+  sessionId String?    // For guest carts
+  
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("carts")
+}
+
+model CartItem {
+  id        String     @id @default(cuid())
+  cartId    String
+  cart      Cart       @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  
+  productId String
+  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  userId    String?
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  quantity  Int        @default(1)
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("cart_items")
+}
+
+// Order model
+model Order {
+  id        String     @id @default(cuid())
+  orderNumber String   @unique
+  
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Shipping address
+  shippingAddressId String?
+  shippingAddress   Address?
+  
+  // Items
+  items     OrderItem[]
+  
+  // Totals
+  subtotal  Float
+  tax       Float
+  shipping  Float
+  total     Float
+  
+  // Status
+  status    OrderStatus @default(PENDING)
+  
+  // Payment
+  paymentIntentId String?
+  paymentStatus   PaymentStatus @default(PENDING)
+  
+  // Appointment
+  appointmentId String?
+  appointment   Appointment?
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String     @id @default(cuid())
+  orderId   String
+  order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  productId String
+  product   Product    @relation(fields: [productId], references: [id])
+  
+  quantity  Int
+  price     Float      // Price at time of order
+  
+  createdAt DateTime   @default(now())
+
+  @@map("order_items")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// Appointment model for consultations
+model Appointment {
+  id        String     @id @default(cuid())
+  
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  orderId   String?    @unique
+  order     Order?     @relation(fields: [orderId], references: [id])
+  
+  appointmentDate DateTime
+  duration  Int        @default(60) // in minutes
+  
+  type      String     // "consultation", "fitting", "custom_design"
+  notes     String?
+  
+  status    AppointmentStatus @default(SCHEDULED)
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("appointments")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+// Custom Design model for custom jewelry
+model CustomDesign {
+  id        String     @id @default(cuid())
+  
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  productId String
+  product   Product    @relation(fields: [productId], references: [id])
+  
+  title     String
+  description String?
+  
+  // Design files
+  designImages String[]
+  designNotes String?
+  
+  // Customization
+  material  String?
+  carat     Float?
+  size      String?
+  
+  // Status and pricing
+  status    DesignStatus @default(DRAFT)
+  estimatedPrice Float?
+  finalPrice Float?
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("custom_designs")
+}
+
+enum DesignStatus {
+  DRAFT
+  SUBMITTED
+  REVIEWING
+  APPROVED
+  REJECTED
+  IN_PRODUCTION
+  COMPLETED
+}
+
+// Email log for tracking
+model EmailLog {
+  id        String     @id @default(cuid())
+  to        String
+  subject   String
+  type      String     // "order_confirmation", "appointment_reminder", etc.
+  
+  orderId   String?
+  appointmentId String?
+  
+  sentAt    DateTime   @default(now())
+
+  @@map("email_logs")
+}
